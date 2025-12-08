@@ -1,0 +1,13 @@
+.navbar {
+  display: flex;
+  background-color: #333;
+  padding: 10px;
+  justify-content: space-around;
+  width: 99vw;
+  box-sizing: border-box;
+}
+.links {
+  color: white;
+  text-decoration: none;
+  cursor: pointer;
+}
