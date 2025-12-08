@@ -55,15 +55,20 @@ const renderValueHtml = (val, path) => {
   if (typeof val === "object") {
     if (Array.isArray(val)) {
       const items = val
-        .map((it, idx) => `${renderValueHtml(it, path ? `${path}[${idx}]` : `[${idx}]`)}`)
-        .join(',\n');
+        .map(
+          (it, idx) =>
+            `${renderValueHtml(it, path ? `${path}[${idx}]` : `[${idx}]`)}`
+        )
+        .join(",\n");
       return `[\n${items}\n]`;
     }
     const parts = Object.keys(val).map((k) => {
       const p = path ? `${path}.${k}` : k;
-      return (`<div class="json-line"><span class="json-key">\"${escapeHtml(k)}\"</span>: ${renderValueHtml(val[k], p)}</div>`);
+      return `<div class="json-line"><span class="json-key">\"${escapeHtml(
+        k
+      )}\"</span>: ${renderValueHtml(val[k], p)}</div>`;
     });
-    return `{\n${parts.join('\n')}\n}`;
+    return `{\n${parts.join("\n")}\n}`;
   }
   // primitive
   const text = escapeHtml(String(val));
@@ -460,7 +465,6 @@ watch([kvExpr, kvKey, kvValue], ([e, k, v]) => {
   </div>
 </template>
 
-
 <style scoped>
 /* Main layout */
 .container {
@@ -726,8 +730,8 @@ h2 {
   margin-left: auto;
   display: flex;
   gap: 8px;
-  flex-wrap: wrap;
-  flex-direction: column;
+  width: 100%;
+  margin-top: 20px;
 }
 
 .kv-btn {

@@ -1,10 +1,10 @@
 // src/router/index.js
 import { createRouter, createWebHistory } from "vue-router";
-import Counter from "../components/Counter.vue";
-import Data from "../components/Data.vue";
-import Form from "../components/Form.vue";
-import PieChart from "../components/PieChart.vue";
-import levenshtein from "../components/Levenshtein.vue";
+// import Counter from "../components/Counter.vue";
+// import Data from "../components/Data.vue";
+// import Form from "../components/Form.vue";
+// import PieChart from "../components/PieChart.vue";
+// import levenshtein from "../components/Levenshtein.vue";
 import JsonEditor from "../components/JsonEditor.vue";
 const routes = [
     { path: "/", name: "JsonEditor", component: JsonEditor },
