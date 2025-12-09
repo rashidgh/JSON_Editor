@@ -1,80 +1,115 @@
 <template>
-  <div class="json-editor p-4" style="font-family: system-ui, -apple-system, 'Segoe UI', Roboto;">
-    <h2 style="margin-bottom:12px">JSON Editor — Duplicate-key Aggregator</h2>
+  <div
+    class="json-editor p-4"
+    style="font-family: system-ui, -apple-system, 'Segoe UI', Roboto"
+  >
+    <h2 style="margin-bottom: 12px">JSON Editor — Duplicate-key Aggregator</h2>
 
-    <div style="display:flex; flex-wrap:wrap; ">
-      <div style="flex:1; min-width:300px;">
+    <div style="display: flex; flex-wrap: wrap">
+      <div style="flex: 1; min-width: 300px">
         <label><strong>Input JSON</strong></label>
         <textarea
           v-model="inputText"
           rows="20"
           placeholder="Paste JSON here or upload file..."
-          style="width:90%; padding:10px; font-family: monospace;"
+          style="width: 90%; padding: 10px; font-family: monospace"
         ></textarea>
 
-        <div style="margin-top:8px; display:flex; flex-wrap:wrap; gap:8px;">
+        <div style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px">
           <input type="file" @change="onFileChange" accept=".json" />
 
-          <button @click="parseInput" :disabled="parsing" style="padding:6px 10px">Parse</button>
-          <button @click="clearAll" style="padding:6px 10px">Clear</button>
+          <button
+            @click="parseInput"
+            :disabled="parsing"
+            style="padding: 6px 10px"
+          >
+            Parse
+          </button>
+          <button @click="clearAll" style="padding: 6px 10px">Clear</button>
 
-          <label style="display:inline-flex; align-items:center; gap:5px;">
+          <label style="display: inline-flex; align-items: center; gap: 5px">
             <input type="checkbox" v-model="removeFromOriginal" />
             Remove duplicates
           </label>
 
-          <label style="display:inline-flex; align-items:center; gap:5px;">
+          <label style="display: inline-flex; align-items: center; gap: 5px">
             Mode:
-            <select v-model="mode" style="padding:4px;">
+            <select v-model="mode" style="padding: 4px">
               <option value="collect">Collect</option>
               <option value="merge">Merge Objects</option>
             </select>
           </label>
         </div>
 
-        <div style="margin-top:5px;">
-          <small v-if="lastError" style="color:red">{{ lastError }}</small>
-          <small v-else-if="parsed" style="color:green">JSON parsed successfully.</small>
+        <div style="margin-top: 5px">
+          <small v-if="lastError" style="color: red">{{ lastError }}</small>
+          <small v-else-if="parsed" style="color: green"
+            >JSON parsed successfully.</small
+          >
         </div>
       </div>
 
-      <div style="width:300px;">
+      <div style="width: 300px">
         <h4>Actions</h4>
-        <div style="display:flex; flex-direction:column; gap:10px;">
-          <button @click="transform" :disabled="!parsed" style="padding:8px;">Transform</button>
-          <button @click="copyTransformed" :disabled="!transformedJson">Copy JSON</button>
-          <button @click="downloadTransformed" :disabled="!transformedJson">Download JSON</button>
+        <div style="display: flex; flex-direction: column; gap: 10px">
+          <button @click="transform" :disabled="!parsed" style="padding: 8px">
+            Transform
+          </button>
+          <button @click="copyTransformed" :disabled="!transformedJson">
+            Copy JSON
+          </button>
+          <button @click="downloadTransformed" :disabled="!transformedJson">
+            Download JSON
+          </button>
           <button @click="resetToOriginal" :disabled="!parsed">Reset</button>
         </div>
       </div>
     </div>
 
-    <hr style="margin:14px 0;" />
+    <hr style="margin: 14px 0" />
 
-    <div style="display:flex; gap:12px; flex-wrap:wrap;">
-      <div style="flex:1; min-width:320px;">
+    <div style="display: flex; gap: 12px; flex-wrap: wrap">
+      <div style="flex: 1; min-width: 320px">
         <label><strong>Original JSON</strong></label>
-        <pre style="background:#f3f3f7; padding:10px; min-height:200px; overflow:auto;">
-{{ format(objState) }}
+        <pre
+          style="
+            background: #f3f3f7;
+            padding: 10px;
+            min-height: 200px;
+            overflow: auto;
+          "
+          >{{ format(objState) }}
         </pre>
       </div>
 
-      <div style="flex:1; min-width:320px;">
+      <div style="flex: 1; min-width: 320px">
         <label><strong>Transformed JSON</strong></label>
-        <pre style="background:#f3f3f7; padding:10px; min-height:200px; overflow:auto;">
-{{ transformedJson ? format(transformedJson) : 'Click Transform' }}
+        <pre
+          style="
+            background: #f3f3f7;
+            padding: 10px;
+            min-height: 200px;
+            overflow: auto;
+          "
+          >{{ transformedJson ? format(transformedJson) : "Click Transform" }}
         </pre>
       </div>
     </div>
 
-    <div v-if="aggregatedKeys.length" style="margin-top:20px;">
+    <div v-if="aggregatedKeys.length" style="margin-top: 20px">
       <h4>Aggregated Keys:</h4>
-      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <div style="display: flex; gap: 8px; flex-wrap: wrap">
         <span
           v-for="k in aggregatedKeys"
           :key="k"
-          style="padding:6px 12px; background:#eef2ff; border-radius:5px;color: black;"
-        >{{ k }}</span>
+          style="
+            padding: 6px 12px;
+            background: #eef2ff;
+            border-radius: 5px;
+            color: black;
+          "
+          >{{ k }}</span
+        >
       </div>
     </div>
   </div>
@@ -98,7 +133,7 @@ export default {
       mode: "collect",
       removeFromOriginal: true,
 
-      aggregatedMap: new Map()
+      aggregatedMap: new Map(),
     };
   },
 
@@ -107,7 +142,7 @@ export default {
       return Array.from(this.aggregatedMap.keys()).filter(
         (k) => this.aggregatedMap.get(k).length > 1
       );
-    }
+    },
   },
 
   methods: {
@@ -167,12 +202,17 @@ export default {
       for (const [key, list] of this.aggregatedMap.entries()) {
         if (list.length <= 1) continue;
 
-        if (this.mode === "merge" && list.every(x => typeof x.value === "object")) {
+        if (
+          this.mode === "merge" &&
+          list.every((x) => typeof x.value === "object")
+        ) {
           const merged = {};
-          list.forEach(item => Object.assign(merged, JSON.parse(JSON.stringify(item.value))));
+          list.forEach((item) =>
+            Object.assign(merged, JSON.parse(JSON.stringify(item.value)))
+          );
           aggregated[key] = merged;
         } else {
-          aggregated[key] = list.map(i => ({ path: i.path, value: i.value }));
+          aggregated[key] = list.map((i) => ({ path: i.path, value: i.value }));
         }
       }
 
@@ -200,7 +240,9 @@ export default {
           if (!this.aggregatedMap.has(key)) {
             this.aggregatedMap.set(key, []);
           }
-          this.aggregatedMap.get(key).push({ path: fullPath, value: node[key] });
+          this.aggregatedMap
+            .get(key)
+            .push({ path: fullPath, value: node[key] });
 
           this.collect(node[key], path.concat(key));
         }
@@ -209,7 +251,7 @@ export default {
 
     removeKeys(node, keys) {
       if (Array.isArray(node)) {
-        node.forEach(n => this.removeKeys(n, keys));
+        node.forEach((n) => this.removeKeys(n, keys));
       } else if (node && typeof node === "object") {
         for (const k of Object.keys(node)) {
           if (keys.includes(k)) {
@@ -228,14 +270,16 @@ export default {
     copyTransformed() {
       if (!this.transformedJson) return;
 
-      navigator.clipboard.writeText(JSON.stringify(this.transformedJson, null, 2));
+      navigator.clipboard.writeText(
+        JSON.stringify(this.transformedJson, null, 2)
+      );
       this.lastError = "Copied!";
       setTimeout(() => (this.lastError = ""), 1200);
     },
 
     downloadTransformed() {
       const blob = new Blob([JSON.stringify(this.transformedJson, null, 2)], {
-        type: "application/json"
+        type: "application/json",
       });
       const url = URL.createObjectURL(blob);
 
@@ -244,8 +288,8 @@ export default {
       a.download = "output.json";
       a.click();
       URL.revokeObjectURL(url);
-    }
-  }
+    },
+  },
 };
 </script>
 
@@ -263,13 +307,11 @@ button:disabled {
   cursor: not-allowed;
 }
 pre {
-  background: #ffffff !important;   /* or dark: #1e1e1e */
-  color: #111111 !important;        /* or light: #e5e5e5 */
+  background: #ffffff !important; /* or dark: #1e1e1e */
+  color: #111111 !important; /* or light: #e5e5e5 */
   padding: 12px;
   border-radius: 6px;
   white-space: pre-wrap;
   word-break: break-word;
 }
-
-
 </style>
