@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, nextTick, watch } from "vue";
+import { ref, onMounted, nextTick, watch, computed } from "vue";
 
 // Use a simple textarea approach instead of Monaco (Monaco has Vite config issues)
 const inputText = ref('{\n  "example": "Paste JSON here"\n}');
@@ -12,6 +12,10 @@ const kvExpr = ref("");
 const keysList = ref([]);
 const fuzzyEnabled = ref(false);
 const fuzzyThreshold = ref(2);
+
+// Group-by state
+const groupEnabled = ref(false);
+const groupByKey = ref("");
 
 // Levenshtein distance (classic implementation)
 const levenshteinDistance = (a, b) => {
@@ -72,9 +76,7 @@ const renderValueHtml = (val, path) => {
   }
   // primitive
   const text = escapeHtml(String(val));
-  // if this path was matched in any result, highlight
-  // We'll highlight based on currently selected matchedPaths (for single-object results we use index 0)
-  // But to keep it simple, highlight when the global matchedPaths contains this path anywhere
+  // highlight if any matchedPaths Set contains this path
   for (const s of matchedPaths.value) {
     if (s && s.has(path)) {
       return `<span class="json-match">\"${text}\"</span>`;
@@ -92,7 +94,7 @@ const renderResultsHtml = (results) => {
   try {
     if (Array.isArray(results)) {
       const html = results
-        .map((r, i) => `<div class="json-obj">${renderValueHtml(r, "")}</div>`) // matchedPaths indices correspond to results
+        .map((r, i) => `<div class="json-obj">${renderValueHtml(r, "")}</div>`)
         .join('<hr class="json-sep"/>');
       return `<pre class="json-pre">${html}</pre>`;
     }
@@ -140,6 +142,10 @@ const updateKeysList = () => {
       flattenKeys(data, "", s);
     }
     keysList.value = Array.from(s).sort();
+    // If currently selected group key is not present, clear it
+    if (groupByKey.value && !keysList.value.includes(groupByKey.value)) {
+      groupByKey.value = "";
+    }
     console.log("Keys found:", keysList.value);
   } catch (err) {
     keysList.value = [];
@@ -170,8 +176,75 @@ const formatJson = () => {
     const parsed = JSON.parse(inputText.value);
     outputText.value = JSON.stringify(parsed, null, 2);
     updateKeysList();
+    // apply grouping if enabled
+    if (groupEnabled.value) {
+      applyGrouping();
+    }
   } catch (err) {
     outputText.value = "// Invalid JSON\n" + err.message;
+    keysList.value = [];
+  }
+};
+
+// Helper: get nested value by dot-path (e.g. "address.city")
+const getValueByPath = (obj, path) => {
+  if (!obj || path == null || path === "") return undefined;
+  const parts = path.split(".");
+  let cur = obj;
+  for (const p of parts) {
+    if (cur == null) return undefined;
+    cur = cur[p];
+  }
+  return cur;
+};
+
+// Grouping implementation
+const applyGrouping = () => {
+  try {
+    const parsed = JSON.parse(inputText.value);
+    if (!groupEnabled.value) {
+      // not grouping -> just pretty print
+      outputText.value = JSON.stringify(parsed, null, 2);
+      return;
+    }
+
+    if (!groupByKey.value || groupByKey.value.trim() === "") {
+      searchResults.value = "// Select a key to group by";
+      return;
+    }
+
+    const dataArr = Array.isArray(parsed) ? parsed : null;
+    if (!dataArr) {
+      // If root JSON not an array, grouping by object fields isn't meaningful here
+      searchResults.value =
+        "// Grouping requires an array of objects at the root";
+      return;
+    }
+
+    // Create grouped object
+    const groups = {};
+    for (const it of dataArr) {
+      const val = getValueByPath(it, groupByKey.value);
+      // Use string representation for group key; handle undefined / null
+      const gk =
+        val === undefined
+          ? "__undefined__"
+          : val === null
+          ? "__null__"
+          : String(val);
+      if (!groups[gk]) groups[gk] = [];
+      groups[gk].push(it);
+    }
+
+    outputText.value = JSON.stringify(groups, null, 2);
+    searchResults.value = `// Grouped by "${groupByKey.value}" — ${
+      Object.keys(groups).length
+    } groups`;
+    // reset any highlighting for grouped view
+    matchedPaths.value = [];
+    highlightedHtml.value = "";
+  } catch (err) {
+    searchResults.value = "// Error while grouping: " + String(err.message);
   }
 };
 
@@ -227,18 +300,6 @@ const searchByKeyValue = () => {
   } catch (err) {
     searchResults.value = "// Error: Invalid JSON or search failed";
   }
-};
-
-// Helper: get nested value by dot-path (e.g. "address.city")
-const getValueByPath = (obj, path) => {
-  if (!obj || !path) return undefined;
-  const parts = path.split(".");
-  let cur = obj;
-  for (const p of parts) {
-    if (cur == null) return undefined;
-    cur = cur[p];
-  }
-  return cur;
 };
 
 // Parse simple expressions like "age>24", "salary>=80000", "name:john"
@@ -349,7 +410,7 @@ const performDynamicSearch = () => {
 
 onMounted(() => {
   // build initial keys list from default inputText
-  updateKeysList();
+  formatJson();
 });
 
 // Clear search fields and restore full formatted JSON
@@ -358,6 +419,8 @@ const clearSearch = () => {
   kvKey.value = "";
   kvValue.value = "";
   searchResults.value = "";
+  groupEnabled.value = false;
+  groupByKey.value = "";
   // restore output from inputText
   try {
     const parsed = JSON.parse(inputText.value);
@@ -389,11 +452,37 @@ watch([kvExpr, kvKey, kvValue], ([e, k, v]) => {
     }, 120);
   }
 });
+
+// Watch input changes to update keys and re-apply grouping/search as needed
+watch([inputText], () => {
+  // try to reformat and update keys; formatJson handles grouping if enabled
+  formatJson();
+});
+
+// Watch grouping-related state
+watch([groupEnabled, groupByKey], ([gEnabled, gKey]) => {
+  if (gEnabled) {
+    applyGrouping();
+  } else {
+    // restore original formatted JSON if grouping is turned off
+    try {
+      const parsed = JSON.parse(inputText.value);
+      outputText.value = JSON.stringify(parsed, null, 2);
+      searchResults.value = "";
+    } catch (err) {
+      // ignore
+    }
+  }
+});
 </script>
+
 <template>
-  <div class="container">
+  <div
+    class="container"
+    style="display: flex; gap: 16px; align-items: flex-start"
+  >
     <!-- LEFT: INPUT JSON -->
-    <div class="editor-panel">
+    <div class="editor-panel" style="flex: 1; min-width: 300px">
       <h2>Input JSON</h2>
       <input type="file" accept="application/json" @change="loadJson" />
       <textarea
@@ -401,21 +490,28 @@ watch([kvExpr, kvKey, kvValue], ([e, k, v]) => {
         @input="formatJson"
         class="editor-area"
         placeholder="Upload JSON or paste here..."
+        style="width: 100%; height: 360px; font-family: monospace; padding: 8px"
       ></textarea>
     </div>
 
-    <!-- MIDDLE: Key:Value / Expression Search -->
-    <div class="kv-panel">
+    <!-- MIDDLE: Key:Value / Expression Search + Grouping -->
+    <div class="kv-panel" style="width: 360px; height: 100%">
       <h2>Search (expressions or key:value)</h2>
+
       <!-- Expression input -->
       <input
         v-model="kvExpr"
         class="kv-input kv-expr"
         placeholder="Expression e.g. age>24   (operators: >, <, >=, <=, =, !=, :)"
+        style="width: 100%; padding: 6px; margin-bottom: 8px"
       />
 
-      <div class="kv-form">
-        <select v-model="kvKey" class="kv-input kv-select">
+      <div class="kv-form" style="display: flex; align-items: center; gap: 8px">
+        <select
+          v-model="kvKey"
+          class="kv-input kv-select"
+          style="flex: 1; padding: 6px"
+        >
           <option value="">-- select key --</option>
           <option v-for="k in keysList" :key="k" :value="k">{{ k }}</option>
         </select>
@@ -424,42 +520,92 @@ watch([kvExpr, kvKey, kvValue], ([e, k, v]) => {
           v-model="kvValue"
           class="kv-input"
           placeholder="value (e.g. hongkong)"
+          style="flex: 1; padding: 6px"
         />
       </div>
-      <div class="input-help input-help-margin">
-        Keys available: {{ keysList.length }}
+      <div class="input-help input-help-margin" style="margin-top: 6px">
+        Keys available: <strong>{{ keysList.length }}</strong>
       </div>
 
-      <div class="kv-options">
-        <label class="fuzzy-label">
+      <div
+        class="kv-options"
+        style="
+          margin-top: 10px;
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          flex-wrap: wrap;
+        "
+      >
+        <label style="display: flex; align-items: center; gap: 6px">
           <input type="checkbox" v-model="fuzzyEnabled" />
-          <span class="fuzzy-text">Fuzzy</span>
+          <span>Fuzzy</span>
         </label>
-        <label class="distance-label">
+
+        <label style="display: flex; align-items: center; gap: 6px">
           <input
             type="number"
             v-model.number="fuzzyThreshold"
             min="0"
             class="distance-input"
+            style="width: 72px; padding: 4px"
           />
-          <span class="distance-text">max distance</span>
+          <span>max distance</span>
         </label>
-        <div class="kv-buttons">
-          <button @click="searchByKeyValue" class="kv-btn">Search</button>
-          <button @click.prevent="clearSearch" class="btn-secondary">
+
+        
+      </div>
+
+      <hr style="margin: 12px 0" />
+
+      <!-- Grouping controls -->
+      <h3>Group By</h3>
+      <div
+        style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px"
+      >
+        <select v-model="groupByKey" style="flex: 1; padding: 6px">
+          <option value="">-- select key to group by --</option>
+          <option v-for="k in keysList" :key="k" :value="k">{{ k }}</option>
+        </select>
+        <label style="display: flex; align-items: center; gap: 6px">
+          <input type="checkbox" v-model="groupEnabled" />
+          <span>Enable</span>
+        </label>
+      </div>
+      <div style=" display: flex;gap: 8px;">
+          <button
+            @click="searchByKeyValue"
+            class="kv-btn"
+            style="padding: 6px 10px; margin-bottom: 10px"
+          >
+            Search
+          </button>
+          <button
+            @click.prevent="clearSearch"
+            class="btn-secondary"
+            style="padding: 5px 10px;height: fit-content;"
+          >
             Clear
           </button>
         </div>
+      <div style="font-size: 13px; color: #444">
+        Tip: grouping works on root arrays of objects. Use nested keys like
+        <code>address.city</code>.
+      </div>
+
+      <div style="margin-top: 12px; font-style: italic; color: #333">
+        {{ searchResults }}
       </div>
     </div>
 
     <!-- RIGHT: OUTPUT JSON -->
-    <div class="editor-panel">
+    <div class="editor-panel" style="flex: 1; min-width: 300px">
       <h2>Output JSON (Formatted)</h2>
       <textarea
         v-model="outputText"
         class="editor-area"
         placeholder="Formatted output will appear here..."
+        style="width: 100%; height: 360px; font-family: monospace; padding: 8px"
       ></textarea>
     </div>
   </div>
