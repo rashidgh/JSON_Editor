@@ -7,6 +7,7 @@ import { createRouter, createWebHistory } from "vue-router";
 // import PieChart from "../components/PieChart.vue";
 // import levenshtein from "../components/Levenshtein.vue";
 import JsonEditor from "../components/JsonEditor.vue";
+import JsonEditorPro from "../components/JsonEditorPro.vue";
 
 const routes = [
   { path: "/", name: "JsonEditor", component: JsonEditor },
@@ -15,6 +16,7 @@ const routes = [
   // { path: "/pie", name: "PieChart", component: PieChart },
   // { path: "/levenshtein", name: "Levenshtein", component: levenshtein },
   // { path: "/jsoneditor", name: "JsonEditor", component: JsonEditor },
+  { path: "/Jsoneditorpro", name: "JsonEditorPro", component: JsonEditorPro },
 ];
 
 const router = createRouter({
