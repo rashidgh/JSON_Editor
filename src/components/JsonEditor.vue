@@ -346,6 +346,21 @@ const performDynamicSearch = () => {
     searchResults.value = "// Error evaluating expression";
   }
 };
+const downloadJson = () => {
+  try {
+    const blob = new Blob([outputText.value], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "edited.json";
+    a.click();
+
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    alert("Unable to download JSON");
+  }
+};
 
 // -------------------------------------------------------------
 // CLEAR SEARCH
@@ -374,25 +389,43 @@ const renameKeyInObject = (obj, oldPath, newPath) => {
   const oldParts = oldPath.split(".");
   const newParts = newPath.split(".");
 
+  // Helper: navigate to parent object
   const getParent = (o, parts) => {
     for (let i = 0; i < parts.length - 1; i++) {
-      if (!o[parts[i]]) return null;
+      if (o == null || typeof o !== "object") return null;
       o = o[parts[i]];
     }
     return o;
   };
 
   const oldParent = getParent(obj, oldParts);
-  const newParent = getParent(obj, newParts);
-
   if (!oldParent || !(oldParts.at(-1) in oldParent)) return;
 
-  const value = oldParent[oldParts.at(-1)];
-  delete oldParent[oldParts.at(-1)];
+  const oldKey = oldParts.at(-1);
+  const newKey = newParts.at(-1);
 
-  if (newParent) newParent[newParts.at(-1)] = value;
+  const keys = Object.keys(oldParent);
+  const idx = keys.indexOf(oldKey);
+  if (idx === -1) return;
+
+  const value = oldParent[oldKey];
+  delete oldParent[oldKey];
+
+  // Insert new key at the SAME position
+  const newObj = {};
+  keys.forEach((k, i) => {
+    if (i === idx) {
+      newObj[newKey] = value;
+    }
+    if (k !== oldKey) newObj[k] = oldParent[k];
+  });
+
+  // Copy back to original object
+  Object.keys(oldParent).forEach((k) => delete oldParent[k]);
+  Object.assign(oldParent, newObj);
 };
 
+// Wrapper for array/object
 const renameKey = () => {
   if (!renameOldKey.value.trim() || !renameNewKey.value.trim()) {
     alert("Enter both old and new key.");
@@ -403,8 +436,8 @@ const renameKey = () => {
     let data = JSON.parse(inputText.value);
 
     if (Array.isArray(data)) {
-      data.forEach((o) =>
-        renameKeyInObject(o, renameOldKey.value, renameNewKey.value)
+      data.forEach((obj) =>
+        renameKeyInObject(obj, renameOldKey.value, renameNewKey.value)
       );
     } else {
       renameKeyInObject(data, renameOldKey.value, renameNewKey.value);
@@ -413,7 +446,7 @@ const renameKey = () => {
     inputText.value = JSON.stringify(data, null, 2);
     formatJson();
     alert("Key renamed successfully!");
-  } catch {
+  } catch (err) {
     alert("Invalid JSON");
   }
 };
@@ -521,24 +554,65 @@ onMounted(formatJson);
           style="flex: 1; padding: 8px; border-radius: 6px; border: none"
         />
       </div>
-      <div style="display: flex; gap: 8px; flex-wrap: wrap">
+      <div style="display: flex; gap: 4px">
         <button
           @click="renameKey"
-          style="margin-top: 10px; padding: 6px 12px; background-color: #444"
+          style="
+            margin-top: 10px;
+            font-weight: 400;
+            padding: 6px;
+            background-color: #444;
+            display: flex;
+            align-items: center;
+            gap: 2px;
+          "
         >
-          Rename
+          <span>Rename</span> <span>🖊️</span>
         </button>
+
         <button
           @click="searchByKeyValue"
-          style="margin-top: 12px; padding: 6px 12px; background-color: green"
+          style="
+            margin-top: 10px;
+            font-weight: 400;
+            padding: 6px;
+            background-color: green;
+            display: flex;
+            align-items: center;
+            gap: 2px;
+          "
         >
-          Search
+          <span>Search</span> <span>🔍</span>
         </button>
+
         <button
           @click="clearSearch"
-          style="margin-top: 12px; padding: 6px 12px; background-color: brown"
+          style="
+            margin-top: 10px;
+            font-weight: 400;
+            padding: 6px;
+            background-color: brown;
+            display: flex;
+            align-items: center;
+            gap: 2px;
+          "
         >
-          Clear
+          <span>Clear</span> <span>✖️</span>
+        </button>
+
+        <button
+          @click="downloadJson"
+          style="
+            margin-top: 10px;
+            font-weight: 400;
+            padding: 6px;
+            background-color: #007bff;
+            display: flex;
+            align-items: center;
+            gap: 2px;
+          "
+        >
+          <span>Download</span> <span>⬇️</span>
         </button>
       </div>
 
