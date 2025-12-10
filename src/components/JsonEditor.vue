@@ -497,15 +497,14 @@ onMounted(formatJson);
       />
 
       <!-- Key:value -->
-      <div style="display: flex; gap: 8px; align-items: center">
-        <select v-model="kvKey" style="flex: 1; padding: 10px">
+      <div style="display: flex; flex-direction: column; width: 100%; gap: 8px; align-items: center">
+        <select v-model="kvKey" style="flex: 1; padding: 10px; width: 100%;">
           <option value="">-- select key --</option>
           <option v-for="k in keysList" :key="k" :value="k">{{ k }}</option>
         </select>
-        <span>:</span>
         <input
           v-model="kvValue"
-          style="flex: 1; padding: 10px; border-radius: 6px; border: none"
+          style="flex: 1; padding: 10px; border-radius: 6px; border: none;width: 94%;"
           placeholder="value"
         />
       </div>
@@ -531,7 +530,7 @@ onMounted(formatJson);
       </div>
 
       <!-- Group -->
-      <h5>Group By</h5>
+      <p style="margin-bottom: 4px;margin-top: -6px;">Group By</p>
       <div style="display: flex; gap: 8px; align-items: center">
         <select v-model="groupByKey" style="flex: 1; padding: 6px">
           <option value="">-- select key --</option>
