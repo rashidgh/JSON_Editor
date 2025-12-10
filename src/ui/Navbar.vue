@@ -6,7 +6,7 @@
         <router-link to="/pie" class="links">PieChart</router-link>
         <router-link to="/levenshtein" class="links">Levenshtein</router-link> -->
         <router-link to="/" class="links">JsonEditor</router-link>
-        <router-link to="/Jsoneditorpro" class="links">JsonEditorPro</router-link>
+        <!-- <router-link to="/Jsoneditorpro" class="links">JsonEditorPro</router-link> -->
     </nav>
 </template>
 
