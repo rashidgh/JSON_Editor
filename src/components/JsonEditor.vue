@@ -1,10 +1,11 @@
 <script setup>
-import { ref, onMounted, nextTick, watch, computed } from "vue";
+import { ref, onMounted, watch } from "vue";
 
-// Use a simple textarea approach instead of Monaco (Monaco has Vite config issues)
+// -------------------------------------------------------------
+// STATE
+// -------------------------------------------------------------
 const inputText = ref('{\n  "example": "Paste JSON here"\n}');
 const outputText = ref("");
-const searchTerm = ref("");
 const searchResults = ref("");
 const kvKey = ref("");
 const kvValue = ref("");
@@ -13,11 +14,22 @@ const keysList = ref([]);
 const fuzzyEnabled = ref(false);
 const fuzzyThreshold = ref(2);
 
-// Group-by state
+// Grouping
 const groupEnabled = ref(false);
 const groupByKey = ref("");
 
-// Levenshtein distance (classic implementation)
+// NEW: Rename Key
+const renameOldKey = ref("");
+const renameNewKey = ref("");
+
+// Highlighting
+const matchedPaths = ref([]);
+const highlightedHtml = ref("");
+const showHighlighted = ref(true);
+
+// -------------------------------------------------------------
+// UTILITY FUNCTIONS
+// -------------------------------------------------------------
 const levenshteinDistance = (a, b) => {
   const as = String(a || "").split("");
   const bs = String(b || "").split("");
@@ -41,10 +53,6 @@ const levenshteinDistance = (a, b) => {
   return dp[m][n];
 };
 
-const matchedPaths = ref([]); // array of Sets per result indicating which key paths matched
-const highlightedHtml = ref("");
-const showHighlighted = ref(true);
-
 const escapeHtml = (s) =>
   String(s)
     .replace(/&/g, "&amp;")
@@ -53,37 +61,39 @@ const escapeHtml = (s) =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 
-// Render an object/array as HTML with matched paths highlighted
+// -------------------------------------------------------------
+// RENDER JSON WITH HIGHLIGHT
+// -------------------------------------------------------------
 const renderValueHtml = (val, path) => {
   if (val === null) return '<span class="json-null">null</span>';
+
   if (typeof val === "object") {
     if (Array.isArray(val)) {
       const items = val
-        .map(
-          (it, idx) =>
-            `${renderValueHtml(it, path ? `${path}[${idx}]` : `[${idx}]`)}`
+        .map((it, idx) =>
+          renderValueHtml(it, path ? `${path}[${idx}]` : `[${idx}]`)
         )
         .join(",\n");
       return `[\n${items}\n]`;
     }
     const parts = Object.keys(val).map((k) => {
       const p = path ? `${path}.${k}` : k;
-      return `<div class="json-line"><span class="json-key">\"${escapeHtml(
+      return `<div class="json-line"><span class="json-key">"${escapeHtml(
         k
-      )}\"</span>: ${renderValueHtml(val[k], p)}</div>`;
+      )}"</span>: ${renderValueHtml(val[k], p)}</div>`;
     });
     return `{\n${parts.join("\n")}\n}`;
   }
-  // primitive
+
   const text = escapeHtml(String(val));
-  // highlight if any matchedPaths Set contains this path
-  for (const s of matchedPaths.value) {
-    if (s && s.has(path)) {
-      return `<span class="json-match">\"${text}\"</span>`;
+
+  for (const set of matchedPaths.value) {
+    if (set && set.has(path)) {
+      return `<span class="json-match">"${text}"</span>`;
     }
   }
-  // default rendering for string/number/boolean
-  if (typeof val === "string") return `\"${text}\"`;
+
+  if (typeof val === "string") return `"${text}"`;
   if (typeof val === "number") return `<span class="json-num">${text}</span>`;
   if (typeof val === "boolean") return `<span class="json-bool">${text}</span>`;
   return text;
@@ -91,42 +101,29 @@ const renderValueHtml = (val, path) => {
 
 const renderResultsHtml = (results) => {
   if (!results) return "";
-  try {
-    if (Array.isArray(results)) {
-      const html = results
-        .map((r, i) => `<div class="json-obj">${renderValueHtml(r, "")}</div>`)
-        .join('<hr class="json-sep"/>');
-      return `<pre class="json-pre">${html}</pre>`;
-    }
-    return `<pre class="json-pre">${renderValueHtml(results, "")}</pre>`;
-  } catch (err) {
-    return `<pre class="json-pre">${escapeHtml(String(results))}</pre>`;
+  if (Array.isArray(results)) {
+    const html = results
+      .map((r) => `<div class="json-obj">${renderValueHtml(r, "")}</div>`)
+      .join('<hr class="json-sep"/>');
+    return `<pre class="json-pre">${html}</pre>`;
   }
+  return `<pre class="json-pre">${renderValueHtml(results, "")}</pre>`;
 };
 
-// Recursively collect keys (dot notation) from objects/arrays
+// -------------------------------------------------------------
+// KEY FLATTENING
+// -------------------------------------------------------------
 const flattenKeys = (obj, prefix, set, maxDepth = 10) => {
   if (obj == null || maxDepth <= 0) return;
+  if (typeof obj !== "object" || Array.isArray(obj)) return;
 
-  // Check if it's a plain object (not array, not null, not primitives)
-  if (typeof obj !== "object" || Array.isArray(obj)) {
-    return;
-  }
-
-  // Process object properties
   for (const k of Object.keys(obj)) {
     const path = prefix ? `${prefix}.${k}` : k;
     set.add(path);
-
-    // Recurse into the value
     const val = obj[k];
     if (Array.isArray(val)) {
-      // For arrays, recurse into each element
-      for (const el of val) {
-        flattenKeys(el, path, set, maxDepth - 1);
-      }
-    } else if (val != null && typeof val === "object") {
-      // For nested objects, recurse with the new prefix
+      val.forEach((el) => flattenKeys(el, path, set, maxDepth - 1));
+    } else if (val && typeof val === "object") {
       flattenKeys(val, path, set, maxDepth - 1);
     }
   }
@@ -137,22 +134,19 @@ const updateKeysList = () => {
     const data = JSON.parse(inputText.value);
     const s = new Set();
     if (Array.isArray(data)) {
-      for (const it of data) flattenKeys(it, "", s);
+      data.forEach((it) => flattenKeys(it, "", s));
     } else {
       flattenKeys(data, "", s);
     }
-    keysList.value = Array.from(s).sort();
-    // If currently selected group key is not present, clear it
-    if (groupByKey.value && !keysList.value.includes(groupByKey.value)) {
-      groupByKey.value = "";
-    }
-    console.log("Keys found:", keysList.value);
-  } catch (err) {
+    keysList.value = [...s].sort();
+  } catch {
     keysList.value = [];
   }
 };
 
-// Load JSON file
+// -------------------------------------------------------------
+// LOAD JSON
+// -------------------------------------------------------------
 const loadJson = (e) => {
   const file = e.target.files[0];
   if (!file) return;
@@ -160,171 +154,143 @@ const loadJson = (e) => {
   const reader = new FileReader();
   reader.onload = (ev) => {
     try {
-      const parsed = JSON.parse(ev.target.result);
-      inputText.value = JSON.stringify(parsed, null, 2);
+      const j = JSON.parse(ev.target.result);
+      inputText.value = JSON.stringify(j, null, 2);
       formatJson();
-    } catch (err) {
+    } catch {
       alert("Invalid JSON file");
     }
   };
   reader.readAsText(file);
 };
 
-// Format and beautify JSON
+// -------------------------------------------------------------
+// FORMAT JSON
+// -------------------------------------------------------------
 const formatJson = () => {
   try {
     const parsed = JSON.parse(inputText.value);
     outputText.value = JSON.stringify(parsed, null, 2);
     updateKeysList();
-    // apply grouping if enabled
-    if (groupEnabled.value) {
-      applyGrouping();
-    }
+    if (groupEnabled.value) applyGrouping();
   } catch (err) {
     outputText.value = "// Invalid JSON\n" + err.message;
     keysList.value = [];
   }
 };
 
-// Helper: get nested value by dot-path (e.g. "address.city")
+// -------------------------------------------------------------
+// GET VALUE BY KEY PATH
+// -------------------------------------------------------------
 const getValueByPath = (obj, path) => {
-  if (!obj || path == null || path === "") return undefined;
-  const parts = path.split(".");
-  let cur = obj;
-  for (const p of parts) {
-    if (cur == null) return undefined;
-    cur = cur[p];
-  }
-  return cur;
+  if (!obj || !path) return undefined;
+  return path.split(".").reduce((o, p) => (o ? o[p] : undefined), obj);
 };
 
-// Grouping implementation
+// -------------------------------------------------------------
+// GROUPING
+// -------------------------------------------------------------
 const applyGrouping = () => {
   try {
-    const parsed = JSON.parse(inputText.value);
+    const data = JSON.parse(inputText.value);
     if (!groupEnabled.value) {
-      // not grouping -> just pretty print
-      outputText.value = JSON.stringify(parsed, null, 2);
+      outputText.value = JSON.stringify(data, null, 2);
       return;
     }
-
-    if (!groupByKey.value || groupByKey.value.trim() === "") {
-      searchResults.value = "// Select a key to group by";
+    if (!Array.isArray(data)) {
+      searchResults.value = "// Grouping requires a root array";
       return;
     }
-
-    const dataArr = Array.isArray(parsed) ? parsed : null;
-    if (!dataArr) {
-      // If root JSON not an array, grouping by object fields isn't meaningful here
-      searchResults.value =
-        "// Grouping requires an array of objects at the root";
-      return;
-    }
-
-    // Create grouped object
     const groups = {};
-    for (const it of dataArr) {
+    data.forEach((it) => {
       const val = getValueByPath(it, groupByKey.value);
-      // Use string representation for group key; handle undefined / null
-      const gk =
+      const key =
         val === undefined
           ? "__undefined__"
           : val === null
           ? "__null__"
           : String(val);
-      if (!groups[gk]) groups[gk] = [];
-      groups[gk].push(it);
-    }
-
+      (groups[key] ??= []).push(it);
+    });
     outputText.value = JSON.stringify(groups, null, 2);
-    searchResults.value = `// Grouped by "${groupByKey.value}" — ${
-      Object.keys(groups).length
-    } groups`;
-    // reset any highlighting for grouped view
+    searchResults.value = `// Grouped by "${groupByKey.value}"`;
     matchedPaths.value = [];
     highlightedHtml.value = "";
   } catch (err) {
-    searchResults.value = "// Error while grouping: " + String(err.message);
+    searchResults.value = "// Error: " + err.message;
   }
 };
 
-// Search by dynamic key:value (e.g. city:hongkong or address.city:london)
+// -------------------------------------------------------------
+// SEARCH (key:value)
+// -------------------------------------------------------------
 const searchByKeyValue = () => {
-  // If an expression is provided (e.g. "age>24"), use dynamic search
-  if (kvExpr.value && kvExpr.value.trim()) {
-    return performDynamicSearch();
-  }
+  if (kvExpr.value.trim()) return performDynamicSearch();
   if (!kvKey.value.trim()) {
-    searchResults.value = "// Enter a key to search";
+    searchResults.value = "// Enter key";
     return;
   }
 
   try {
     const data = JSON.parse(inputText.value);
+    const arr = Array.isArray(data) ? data : [data];
     const key = kvKey.value;
     const val = String(kvValue.value || "").toLowerCase();
 
-    const arr = Array.isArray(data) ? data : [data];
-    const matched = [];
     const results = arr.filter((item) => {
-      if (!item || typeof item !== "object") return false;
-      // Use getValueByPath to support nested keys like address.city
-      const fieldRaw = getValueByPath(item, key);
-      if (fieldRaw === undefined) return false;
-      if (!val) return true; // key exists
-      const field = String(fieldRaw ?? "").toLowerCase();
-      // Fuzzy matching option
-      if (fuzzyEnabled.value) {
-        const distance = levenshteinDistance(field, val);
-        const ok = distance <= Number(fuzzyThreshold.value || 2);
-        if (ok) matched.push(key);
-        return ok;
-      }
-      const ok = field.includes(val);
-      if (ok) matched.push(key);
-      return ok;
+      const raw = getValueByPath(item, key);
+      if (raw === undefined) return false;
+
+      if (!val) return true;
+
+      const field = String(raw ?? "").toLowerCase();
+
+      if (fuzzyEnabled.value)
+        return levenshteinDistance(field, val) <= fuzzyThreshold.value;
+
+      return field.includes(val);
     });
-    if (results.length === 0) {
-      searchResults.value =
-        "// No matches found for " + key + ":" + kvValue.value;
+
+    if (!results.length) {
+      searchResults.value = "// No matches";
       outputText.value = "[]";
-      matchedPaths.value = [];
-      highlightedHtml.value = "";
-    } else {
-      searchResults.value = `// ${results.length} matches`;
-      outputText.value = JSON.stringify(results, null, 2);
-      // populate matchedPaths: mark the selected key for each result
-      matchedPaths.value = results.map(() => new Set([key]));
-      highlightedHtml.value = renderResultsHtml(results);
+      return;
     }
-  } catch (err) {
-    searchResults.value = "// Error: Invalid JSON or search failed";
+
+    searchResults.value = `// ${results.length} matches`;
+    outputText.value = JSON.stringify(results, null, 2);
+
+    matchedPaths.value = results.map(() => new Set([key]));
+    highlightedHtml.value = renderResultsHtml(results);
+  } catch {
+    searchResults.value = "// Error during search";
   }
 };
 
-// Parse simple expressions like "age>24", "salary>=80000", "name:john"
+// -------------------------------------------------------------
+// PARSE EXPRESSIONS (age > 30, name:john, etc.)
+// -------------------------------------------------------------
 const parseExpression = (expr) => {
-  const operators = [">=", "<=", "==", "!=", ">", "<", ":", "="];
-  for (const op of operators) {
+  const ops = [">=", "<=", "==", "!=", ">", "<", ":", "="];
+  for (const op of ops) {
     const idx = expr.indexOf(op);
-    if (idx > -1) {
-      const key = expr.slice(0, idx).trim();
-      const val = expr.slice(idx + op.length).trim();
-      return { key, op, val };
-    }
+    if (idx > -1)
+      return {
+        key: expr.slice(0, idx).trim(),
+        op,
+        val: expr.slice(idx + op.length).trim(),
+      };
   }
   return null;
 };
 
+// -------------------------------------------------------------
+// DYNAMIC SEARCH
+// -------------------------------------------------------------
 const performDynamicSearch = () => {
   const raw = kvExpr.value.trim();
-  if (!raw) {
-    searchResults.value = "// Enter an expression, e.g. age>24";
-    return;
-  }
-
-  const parsedExpr = parseExpression(raw);
-  if (!parsedExpr || !parsedExpr.key) {
+  const parsed = parseExpression(raw);
+  if (!parsed) {
     searchResults.value = "// Invalid expression";
     return;
   }
@@ -332,148 +298,133 @@ const performDynamicSearch = () => {
   try {
     const data = JSON.parse(inputText.value);
     const arr = Array.isArray(data) ? data : [data];
-    const { key, op, val } = parsedExpr;
+    const { key, op, val } = parsed;
 
     const results = arr.filter((item) => {
-      if (!item || typeof item !== "object") return false;
-      const fieldRaw = getValueByPath(item, key);
-      if (fieldRaw === undefined) return false;
+      const raw = getValueByPath(item, key);
+      if (raw === undefined) return false;
 
-      const fieldStr = String(fieldRaw).trim();
-      const targetStr = String(val).trim();
+      const a = Number(raw);
+      const b = Number(val);
+      const numeric = !Number.isNaN(a) && !Number.isNaN(b);
 
-      // remove surrounding quotes from target if provided, then normalize for string comparisons
-      const unquotedTarget = targetStr.replace(/^\s*["']|["']\s*$/g, "").trim();
-      const lhs = fieldStr.toLowerCase();
-      const rhs = unquotedTarget.toLowerCase();
-
-      // Numeric comparisons when both sides are numeric
-      const a = Number(fieldStr);
-      const b = Number(targetStr);
-      const bothNumeric = !Number.isNaN(a) && !Number.isNaN(b);
+      const lhs = String(raw).toLowerCase();
+      const rhs = val.toLowerCase();
 
       switch (op) {
         case ">":
-          return bothNumeric ? a > b : fieldStr > targetStr;
+          return numeric ? a > b : lhs > rhs;
         case "<":
-          return bothNumeric ? a < b : fieldStr < targetStr;
+          return numeric ? a < b : lhs < rhs;
         case ">=":
-          return bothNumeric ? a >= b : fieldStr >= targetStr;
+          return numeric ? a >= b : lhs >= rhs;
         case "<=":
-          return bothNumeric ? a <= b : fieldStr <= targetStr;
+          return numeric ? a <= b : lhs <= rhs;
         case "==":
         case "=":
-          if (bothNumeric) return a === b;
-          if (fuzzyEnabled.value) {
-            return (
-              levenshteinDistance(lhs, rhs) <= Number(fuzzyThreshold.value || 2)
-            );
-          }
-          return lhs === rhs;
+          return numeric ? a === b : lhs === rhs;
         case "!=":
-          if (bothNumeric) return a !== b;
-          if (fuzzyEnabled.value) {
-            return (
-              levenshteinDistance(lhs, rhs) > Number(fuzzyThreshold.value || 2)
-            );
-          }
-          return lhs !== rhs;
+          return numeric ? a !== b : lhs !== rhs;
         case ":":
-          if (fuzzyEnabled.value) {
-            return (
-              levenshteinDistance(lhs, unquotedTarget.toLowerCase()) <=
-              Number(fuzzyThreshold.value || 2)
-            );
-          }
-          return fieldStr.toLowerCase().includes(unquotedTarget.toLowerCase());
-        default:
-          return false;
+          return lhs.includes(rhs);
       }
+      return false;
     });
 
-    if (results.length === 0) {
-      searchResults.value = `// No matches for ${raw}`;
+    if (!results.length) {
+      searchResults.value = "// No matches";
       outputText.value = "[]";
-      matchedPaths.value = [];
-      highlightedHtml.value = "";
-    } else {
-      searchResults.value = `// ${results.length} matches for ${raw}`;
-      outputText.value = JSON.stringify(results, null, 2);
-      // mark the parsedExpr.key as matched path for each result
-      matchedPaths.value = results.map(() => new Set([key]));
-      highlightedHtml.value = renderResultsHtml(results);
+      return;
     }
-  } catch (err) {
-    searchResults.value = "// Error: Invalid JSON or search failed";
+
+    searchResults.value = `// ${results.length} matches`;
+    outputText.value = JSON.stringify(results, null, 2);
+
+    matchedPaths.value = results.map(() => new Set([parsed.key]));
+    highlightedHtml.value = renderResultsHtml(results);
+  } catch {
+    searchResults.value = "// Error evaluating expression";
   }
 };
 
-onMounted(() => {
-  // build initial keys list from default inputText
-  formatJson();
-});
-
-// Clear search fields and restore full formatted JSON
+// -------------------------------------------------------------
+// CLEAR SEARCH
+// -------------------------------------------------------------
 const clearSearch = () => {
   kvExpr.value = "";
   kvKey.value = "";
   kvValue.value = "";
-  searchResults.value = "";
   groupEnabled.value = false;
   groupByKey.value = "";
-  // restore output from inputText
+  matchedPaths.value = [];
+  searchResults.value = "";
+  renameOldKey.value = "";
+  renameNewKey.value = "";
+
   try {
     const parsed = JSON.parse(inputText.value);
     outputText.value = JSON.stringify(parsed, null, 2);
-  } catch (err) {
-    outputText.value = "// Invalid JSON\n" + err.message;
-  }
-  updateKeysList();
-  matchedPaths.value = [];
-  highlightedHtml.value = "";
+  } catch {}
 };
 
-// If user manually clears the expression/key/value, automatically restore full data
-watch([kvExpr, kvKey, kvValue], ([e, k, v]) => {
-  if (
-    (!e || e.trim() === "") &&
-    (!k || k.trim() === "") &&
-    (!v || v.trim() === "")
-  ) {
-    // small debounce to avoid rapid calls
-    setTimeout(() => {
-      try {
-        const parsed = JSON.parse(inputText.value);
-        outputText.value = JSON.stringify(parsed, null, 2);
-        searchResults.value = "";
-      } catch (err) {
-        // leave output as-is if input invalid
-      }
-    }, 120);
-  }
-});
+// -------------------------------------------------------------
+// NEW: RENAME KEY (supports nested)
+// -------------------------------------------------------------
+const renameKeyInObject = (obj, oldPath, newPath) => {
+  const oldParts = oldPath.split(".");
+  const newParts = newPath.split(".");
 
-// Watch input changes to update keys and re-apply grouping/search as needed
-watch([inputText], () => {
-  // try to reformat and update keys; formatJson handles grouping if enabled
-  formatJson();
-});
-
-// Watch grouping-related state
-watch([groupEnabled, groupByKey], ([gEnabled, gKey]) => {
-  if (gEnabled) {
-    applyGrouping();
-  } else {
-    // restore original formatted JSON if grouping is turned off
-    try {
-      const parsed = JSON.parse(inputText.value);
-      outputText.value = JSON.stringify(parsed, null, 2);
-      searchResults.value = "";
-    } catch (err) {
-      // ignore
+  const getParent = (o, parts) => {
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (!o[parts[i]]) return null;
+      o = o[parts[i]];
     }
+    return o;
+  };
+
+  const oldParent = getParent(obj, oldParts);
+  const newParent = getParent(obj, newParts);
+
+  if (!oldParent || !(oldParts.at(-1) in oldParent)) return;
+
+  const value = oldParent[oldParts.at(-1)];
+  delete oldParent[oldParts.at(-1)];
+
+  if (newParent) newParent[newParts.at(-1)] = value;
+};
+
+const renameKey = () => {
+  if (!renameOldKey.value.trim() || !renameNewKey.value.trim()) {
+    alert("Enter both old and new key.");
+    return;
   }
-});
+
+  try {
+    let data = JSON.parse(inputText.value);
+
+    if (Array.isArray(data)) {
+      data.forEach((o) =>
+        renameKeyInObject(o, renameOldKey.value, renameNewKey.value)
+      );
+    } else {
+      renameKeyInObject(data, renameOldKey.value, renameNewKey.value);
+    }
+
+    inputText.value = JSON.stringify(data, null, 2);
+    formatJson();
+    alert("Key renamed successfully!");
+  } catch {
+    alert("Invalid JSON");
+  }
+};
+
+// -------------------------------------------------------------
+// WATCHERS
+// -------------------------------------------------------------
+watch(inputText, formatJson);
+watch([groupEnabled, groupByKey], applyGrouping);
+
+onMounted(formatJson);
 </script>
 
 <template>
@@ -481,130 +432,127 @@ watch([groupEnabled, groupByKey], ([gEnabled, gKey]) => {
     class="container"
     style="display: flex; gap: 16px; align-items: flex-start"
   >
-    <!-- LEFT: INPUT JSON -->
+    <!-- LEFT PANEL -->
     <div class="editor-panel" style="flex: 1; min-width: 300px">
       <h2>Input JSON</h2>
       <input type="file" accept="application/json" @change="loadJson" />
+
       <textarea
         v-model="inputText"
         @input="formatJson"
         class="editor-area"
-        placeholder="Upload JSON or paste here..."
         style="width: 100%; height: 360px; font-family: monospace; padding: 8px"
       ></textarea>
     </div>
 
-    <!-- MIDDLE: Key:Value / Expression Search + Grouping -->
-    <div class="kv-panel" style="width: 360px; height: 100%">
-      <h2>Search (expressions or key:value)</h2>
+    <!-- MIDDLE PANEL -->
+    <div class="kv-panel" style="width: 360px">
+      <h2>Search / Filter</h2>
 
-      <!-- Expression input -->
+      <!-- Expression -->
       <input
         v-model="kvExpr"
-        class="kv-input kv-expr"
-        placeholder="Expression e.g. age>24   (operators: >, <, >=, <=, =, !=, :)"
-        style="width: 100%; padding: 6px; margin-bottom: 8px"
+        placeholder="Expression e.g. age>24"
+        style="
+          width: 100%;
+          padding: 10px;
+          margin-bottom: 8px;
+          border-radius: 6px;
+          border: none;
+          width: 95%;
+        "
       />
 
-      <div class="kv-form" style="display: flex; align-items: center; gap: 8px">
-        <select
-          v-model="kvKey"
-          class="kv-input kv-select"
-          style="flex: 1; padding: 6px"
-        >
+      <!-- Key:value -->
+      <div style="display: flex; gap: 8px; align-items: center">
+        <select v-model="kvKey" style="flex: 1; padding: 10px">
           <option value="">-- select key --</option>
           <option v-for="k in keysList" :key="k" :value="k">{{ k }}</option>
         </select>
-        <span class="kv-sep">:</span>
+        <span>:</span>
         <input
           v-model="kvValue"
-          class="kv-input"
-          placeholder="value (e.g. hongkong)"
-          style="flex: 1; padding: 6px"
+          style="flex: 1; padding: 10px; border-radius: 6px; border: none"
+          placeholder="value"
         />
       </div>
-      <div class="input-help input-help-margin" style="margin-top: 6px">
-        Keys available: <strong>{{ keysList.length }}</strong>
+
+      <div style="margin-top: 6px">
+        Keys available: <b>{{ keysList.length }}</b>
       </div>
 
       <div
-        class="kv-options"
-        style="
-          margin-top: 10px;
-          display: flex;
-          gap: 8px;
-          align-items: center;
-          flex-wrap: wrap;
-        "
+        style="margin-top: 10px; display: flex; gap: 8px; align-items: center"
       >
-        <label style="display: flex; align-items: center; gap: 6px">
-          <input type="checkbox" v-model="fuzzyEnabled" />
-          <span>Fuzzy</span>
-        </label>
+        <label><input type="checkbox" v-model="fuzzyEnabled" /> Fuzzy</label>
 
-        <label style="display: flex; align-items: center; gap: 6px">
+        <label style="display: flex; gap: 6px">
           <input
             type="number"
             v-model.number="fuzzyThreshold"
             min="0"
-            class="distance-input"
-            style="width: 72px; padding: 4px"
+            style="width: 60px"
           />
-          <span>max distance</span>
+          distance
         </label>
-
-        
       </div>
 
-      <hr style="margin: 12px 0" />
-
-      <!-- Grouping controls -->
-      <h3>Group By</h3>
-      <div
-        style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px"
-      >
+      <!-- Group -->
+      <h5>Group By</h5>
+      <div style="display: flex; gap: 8px; align-items: center">
         <select v-model="groupByKey" style="flex: 1; padding: 6px">
-          <option value="">-- select key to group by --</option>
+          <option value="">-- select key --</option>
           <option v-for="k in keysList" :key="k" :value="k">{{ k }}</option>
         </select>
-        <label style="display: flex; align-items: center; gap: 6px">
-          <input type="checkbox" v-model="groupEnabled" />
-          <span>Enable</span>
-        </label>
-      </div>
-      <div style=" display: flex;gap: 8px;">
-          <button
-            @click="searchByKeyValue"
-            class="kv-btn"
-            style="padding: 6px 10px; margin-bottom: 10px"
-          >
-            Search
-          </button>
-          <button
-            @click.prevent="clearSearch"
-            class="btn-secondary"
-            style="padding: 5px 10px;height: fit-content;"
-          >
-            Clear
-          </button>
-        </div>
-      <div style="font-size: 13px; color: #444">
-        Tip: grouping works on root arrays of objects. Use nested keys like
-        <code>address.city</code>.
+        <label><input type="checkbox" v-model="groupEnabled" /> Enable</label>
       </div>
 
-      <div style="margin-top: 12px; font-style: italic; color: #333">
+      <!-- NEW: Rename Key -->
+      <h5>Rename Key</h5>
+      <div style="display: flex; gap: 8px">
+        <input
+          v-model="renameOldKey"
+          placeholder="old key"
+          style="flex: 1; padding: 8px; border-radius: 6px; border: none"
+        />
+        <input
+          v-model="renameNewKey"
+          placeholder="new key"
+          style="flex: 1; padding: 8px; border-radius: 6px; border: none"
+        />
+      </div>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap">
+        <button
+          @click="renameKey"
+          style="margin-top: 10px; padding: 6px 12px; background-color: #444"
+        >
+          Rename
+        </button>
+        <button
+          @click="searchByKeyValue"
+          style="margin-top: 12px; padding: 6px 12px; background-color: green"
+        >
+          Search
+        </button>
+        <button
+          @click="clearSearch"
+          style="margin-top: 12px; padding: 6px 12px; background-color: brown"
+        >
+          Clear
+        </button>
+      </div>
+
+      <div style="margin-top: 12px; font-style: italic; color: #444">
         {{ searchResults }}
       </div>
     </div>
 
-    <!-- RIGHT: OUTPUT JSON -->
+    <!-- RIGHT PANEL -->
     <div class="editor-panel" style="flex: 1; min-width: 300px">
-      <h2>Output JSON (Formatted)</h2>
+      <h2>Output JSON</h2>
       <textarea
         v-model="outputText"
         class="editor-area"
-        placeholder="Formatted output will appear here..."
         style="width: 100%; height: 360px; font-family: monospace; padding: 8px"
       ></textarea>
     </div>
@@ -752,7 +700,7 @@ select:focus {
 }
 
 /* KV panel (between editors) */
-.kv-panel {
+/* .kv-panel {
   flex: 0.8;
   display: flex;
   flex-direction: column;
@@ -764,17 +712,17 @@ select:focus {
   border: 1px solid rgba(255, 255, 255, 0.03);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.6),
     inset 0 1px 0 rgba(255, 255, 255, 0.02);
-  height: 85%;
-}
+  height: auto;
+} */
 
-.kv-form {
+/* .kv-form {
   display: flex;
   align-items: center;
   gap: 10px;
   margin-top: 6px;
-}
+} */
 
-.kv-input {
+/* .kv-input {
   padding: 10px 12px;
   background: #0f0f10;
   color: #e6e6e6;
@@ -785,7 +733,7 @@ select:focus {
     border-color 120ms ease;
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02);
   width: 32%;
-}
+} */
 
 .kv-expr {
   width: 90%;
@@ -870,36 +818,6 @@ h2 {
 .distance-text {
   font-size: 13px;
   color: #9aa4b2;
-}
-
-.kv-buttons {
-  margin-left: auto;
-  display: flex;
-  gap: 8px;
-  width: 100%;
-  margin-top: 20px;
-}
-
-.kv-btn {
-  padding: 9px 14px;
-  background: linear-gradient(180deg, #2b81ff, #0d6efd);
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  box-shadow: 0 6px 16px rgba(13, 110, 253, 0.18);
-  transition: transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
-  width: 84%;
-}
-
-.kv-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 24px rgba(13, 110, 253, 0.22);
-}
-
-.kv-btn:active {
-  transform: translateY(0);
-  opacity: 0.95;
 }
 
 /* Responsive: stack panels on small screens */
