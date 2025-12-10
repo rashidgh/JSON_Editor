@@ -546,7 +546,7 @@ onMounted(formatJson);
       <!-- Group -->
       <p style="margin-bottom: 4px; margin-top: -6px">Group By</p>
       <div style="display: flex; gap: 8px; align-items: center">
-        <select v-model="groupByKey" style="flex: 1; padding: 6px">
+        <select v-model="groupByKey" style="flex: 1; padding: 10px">
           <option value="">-- select key --</option>
           <option v-for="k in keysList" :key="k" :value="k">{{ k }}</option>
         </select>
@@ -554,17 +554,29 @@ onMounted(formatJson);
       </div>
 
       <!-- NEW: Rename Key -->
-      <h5>Rename Key</h5>
-      <div style="display: flex; gap: 8px">
+      <h5 style="margin-top: 4px">Rename Key</h5>
+      <div style="display: flex; gap: 8px; margin-top: -10px">
         <input
           v-model="renameOldKey"
           placeholder="old key"
-          style="flex: 1; padding: 8px; border-radius: 6px; border: none"
+          style="
+            flex: 1;
+            padding: 8px;
+            border-radius: 6px;
+            border: none;
+            width: 150px;
+          "
         />
         <input
           v-model="renameNewKey"
           placeholder="new key"
-          style="flex: 1; padding: 8px; border-radius: 6px; border: none"
+          style="
+            flex: 1;
+            padding: 8px;
+            border-radius: 6px;
+            border: none;
+            width: 150px;
+          "
         />
       </div>
       <div
@@ -590,36 +602,6 @@ onMounted(formatJson);
           <span>Rename</span> <span>🖊️</span>
         </button>
 
-        
-        <button
-        @click="clearSearch"
-        style="
-            margin-top: 10px;
-            font-weight: 400;
-            padding: 6px;
-            background-color: brown;
-            display: flex;
-            align-items: center;
-            gap: 2px;
-          "
-        >
-        <span>Clear</span> <span>❌</span>
-      </button>
-      <button
-        @click="searchByKeyValue"
-        style="
-          margin-top: 10px;
-          font-weight: 400;
-          padding: 6px;
-          background-color: green;
-          display: flex;
-          align-items: center;
-          gap: 2px;
-        "
-      >
-        <span>Search</span> <span>🔍</span>
-      </button>
-
         <button
           @click="downloadJson"
           style="
@@ -634,6 +616,35 @@ onMounted(formatJson);
         >
           <span>Download</span> <span>⬇️</span>
         </button>
+        <button
+          @click="clearSearch"
+          style="
+            margin-top: 10px;
+            font-weight: 400;
+            padding: 6px;
+            background-color: brown;
+            display: flex;
+            align-items: center;
+            gap: 2px;
+          "
+        >
+          <span>Clear</span> <span>❌</span>
+        </button>
+        <button
+          @click="searchByKeyValue"
+          style="
+            margin-top: 10px;
+            font-weight: 400;
+            padding: 6px;
+            background-color: green;
+            display: flex;
+            align-items: center;
+            gap: 2px;
+          "
+        >
+          <span>Search</span> <span>🔍</span>
+        </button>
+
       </div>
 
       <div style="margin-top: 12px; font-style: italic; color: #444">
