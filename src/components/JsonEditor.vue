@@ -590,24 +590,10 @@ onMounted(formatJson);
           <span>Rename</span> <span>🖊️</span>
         </button>
 
+        
         <button
-          @click="searchByKeyValue"
-          style="
-            margin-top: 10px;
-            font-weight: 400;
-            padding: 6px;
-            background-color: green;
-            display: flex;
-            align-items: center;
-            gap: 2px;
-          "
-        >
-          <span>Search</span> <span>🔍</span>
-        </button>
-
-        <button
-          @click="clearSearch"
-          style="
+        @click="clearSearch"
+        style="
             margin-top: 10px;
             font-weight: 400;
             padding: 6px;
@@ -617,8 +603,22 @@ onMounted(formatJson);
             gap: 2px;
           "
         >
-          <span>Clear</span> <span>✖️</span>
-        </button>
+        <span>Clear</span> <span>❌</span>
+      </button>
+      <button
+        @click="searchByKeyValue"
+        style="
+          margin-top: 10px;
+          font-weight: 400;
+          padding: 6px;
+          background-color: green;
+          display: flex;
+          align-items: center;
+          gap: 2px;
+        "
+      >
+        <span>Search</span> <span>🔍</span>
+      </button>
 
         <button
           @click="downloadJson"
